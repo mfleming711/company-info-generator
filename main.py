@@ -13,89 +13,105 @@ client = OpenAI(
     api_key=OPENAI_API_KEY,
 )
 
-words_in_title = []
-
-
-def call_chatgpt_api(prompt, output_type="string"):
-    response = client.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": """
+functions = [
+    {
+        "name": "get_company_info",
+        "description": """
                     You are a web crawler to find the exact company information from the online sources.
 
-                    Retrieve and verify information for the specified company with a focus on accuracy and reliability. The response should include only data that matches the highest standard of correctness, including these key business details where available:
-                    Legal entity name
-                    State of incorporation
-                    Headquarters address
-                    Revenue (approximate if exact figures are unavailable"
+                    Collect and verify the specified company's information with a strict focus on accuracy. Each piece of data should meet high standards for reliability, and the following key business details should be included if available:
+                    - Legal entity name: Ensure the full, registered name is returned, including the company type at the end (e.g., Inc, LLC, Co).
+                    - State of incorporation
+                    - Headquarters address: Include the full address, such as street, city, zip code, and state.
+                    - Revenue: Provide an approximate figure if exact numbers are not available.
 
                     Ensure each data point is verified against multiple sources. Return only if consistent and trustworthy.
                     Do not generate any fake information.
                     Reference source example: Datanyze, ZoomInfo
-
-                    output format:
-                    #####
-                    value1
-                    #####
-                    value2
-                    #####
-                    value3
-                    #####
-                    value4
-                    #####
                 """,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "company_name": {
+                    "type": "string",
+                    "description": """A company's legal entity name is its official name used on legal and government documents. It appears on formation documents, like a corporation's articles of incorporation or an LLC's operating agreement, and includes the business type (e.g., "LLC," "Inc.").""",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "The state of incorporation is the state where a business is registered to become a separate legal entity.",
+                },
+                "hq_address": {
+                    "type": "string",
+                    "description": "An HQ address is the address of a company's headquarters, which is the main office where the executive management and key staff are located.",
+                },
+                "revenue": {
+                    "type": "string",
+                    "description": "The approximate revenue of the company.",
+                },
             },
-            {"role": "user", "content": prompt},
+            "required": ["company_name", "state", "hq_address", "revenue"],
+        },
+    }
+]
+
+
+def call_chatgpt_function(company_name):
+    response = client.chat.completions.create(
+        model="gpt-4-0613",
+        messages=[
+            {
+                "role": "user",
+                "content": f"Retrieve company information for {company_name}",
+            }
         ],
-        model="gpt-4o",
+        functions=functions,
+        function_call={"name": "get_company_info"},
     )
-    result = response.choices[0].message.content.strip()
 
-    if output_type == "json":
-        result_dict = json.loads(result.strip())
+    # Extracting the output
+    function_response = json.loads(response.choices[0].message.function_call.arguments)
 
-        result_dict = {
-            key.replace("_", "").lower(): value for key, value in result_dict.items()
-        }
-        return result_dict
-
-    return result
+    return function_response
 
 
 def regenerate_info(company_name, retry=0):
-    if retry > 3:
-        print(f"Failed {company_name}")
-        return []
-
     try:
         time.sleep(2)
-        company_info_prompt = company_name
+        if retry > 0:
+            print(f'Retrying "{company_name}"')
+        else:
+            print(f'Analyzing "{company_name}"')
 
-        result = call_chatgpt_api(company_info_prompt, "string")
+        result = call_chatgpt_function(company_name)
 
-        result = result.split("#####")
-
-        cleaned_list = [s.strip() for s in result if s.strip()]
-
-        product_title = cleaned_list[0]
-        title_p = product_title.split(" ")
+        # validate the result
+        if len(result["company_name"]) == 0:
+            raise "Company name is invalid"
+        if len(result["state"]) == 0:
+            raise "State is invalid"
+        if len(result["hq_address"]) == 0:
+            raise "HQ address is invalid"
+        if len(result["revenue"]) == 0:
+            raise "Revenue is invalid"
 
         result_dict = [
             [
                 company_name,
-                cleaned_list[0],
-                cleaned_list[1],
-                cleaned_list[2],
-                cleaned_list[3],
+                result["company_name"],
+                result["state"],
+                result["hq_address"],
+                result["revenue"],
             ]
         ]
 
         return result_dict
     except Exception as e:
         time.sleep(1)
-        regenerate_info(company_name, retry + 1)
-        return []
+        if retry > 2:
+            print(f'Failed "{company_name}"')
+            return []
+        retried = regenerate_info(company_name, retry + 1)
+        return retried
 
 
 def read_products_from_csv(file_path):
