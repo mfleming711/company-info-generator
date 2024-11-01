@@ -32,9 +32,9 @@ functions = [
         "parameters": {
             "type": "object",
             "properties": {
-                "company_name": {
+                "legal_entity_name_with_entity_type": {
                     "type": "string",
-                    "description": """A company's legal entity name is its official name used on legal and government documents. It appears on formation documents, like a corporation's articles of incorporation or an LLC's operating agreement, and includes the business type (e.g., "LLC," "Inc.").""",
+                    "description": "Entity type must be included",
                 },
                 "state": {
                     "type": "string",
@@ -49,7 +49,12 @@ functions = [
                     "description": "The approximate revenue of the company.",
                 },
             },
-            "required": ["company_name", "state", "hq_address", "revenue"],
+            "required": [
+                "legal_entity_name_with_entity_type",
+                "state",
+                "hq_address",
+                "revenue",
+            ],
         },
     }
 ]
@@ -85,7 +90,7 @@ def regenerate_info(company_name, retry=0):
         result = call_chatgpt_function(company_name)
 
         # validate the result
-        if len(result["company_name"]) == 0:
+        if len(result["legal_entity_name_with_entity_type"]) == 0:
             raise "Company name is invalid"
         if len(result["state"]) == 0:
             raise "State is invalid"
@@ -97,7 +102,7 @@ def regenerate_info(company_name, retry=0):
         result_dict = [
             [
                 company_name,
-                result["company_name"],
+                result["legal_entity_name_with_entity_type"],
                 result["state"],
                 result["hq_address"],
                 result["revenue"],
